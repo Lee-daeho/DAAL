@@ -1,0 +1,9 @@
+#folder
+
+results/
+data/
+
+*.csv
+*.pt
+*.gz
+*ubyte
