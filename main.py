@@ -50,7 +50,7 @@ def train(labeled_dataset, val_dataset, unlabeled_dataset):
             if args.mode == 'augment':
                 if not chosen_dataset:
                     labeled_dataset, unlabeled_dataset, chosen_dataset = \
-                        add_data(labeled_dataset, unlabeled_dataset, args.mode, args.add_num, labeled_dataset)
+                        add_data(labeled_dataset, unlabeled_dataset, args.mode, args.add_num)
                 else:
                     labeled_dataset, unlabeled_dataset, chosen_dataset = \
                         add_data(labeled_dataset, unlabeled_dataset, args.mode, args.add_num, chosen_dataset)

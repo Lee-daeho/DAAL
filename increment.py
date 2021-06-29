@@ -41,13 +41,37 @@ def add_data(labeled_dataset, unlabeled_dataset,  mode, add_num, chosen_dataset=
             transforms.Normalize((0.1307,), (0.3081,))
         ])
 
-
         added_data = torch.Tensor([])
         added_label = np.array([])
         chosen_data = torch.Tensor([])
         chosen_label = np.array([])
 
-        for idx in range(len(labeled_dataset)):
+        if chosen_dataset:
+            for idx in range(len(labeled_dataset)):
+                data = labeled_dataset[idx][0]
+                label = labeled_dataset.label[idx]
+
+                added_data = torch.cat((added_data, data), dim=0)
+                added_label = np.append(added_label, label)
+
+            for idx in range(len(chosen_dataset)):
+                data = chosen_dataset[idx][0]
+                label = chosen_dataset.label[idx]
+
+                chosen_data = torch.cat((chosen_data, data), dim=0)
+                chosen_label = np.append(chosen_label, label)
+
+        else:
+            for idx in range(len(labeled_dataset)):
+                data = labeled_dataset[idx][0]
+                label = labeled_dataset.label[idx]
+
+                added_data = torch.cat((added_data, data), dim=0)
+                added_label = np.append(added_label, label)
+                chosen_data = torch.cat((chosen_data, data), dim=0)
+                chosen_label = np.append(chosen_label, label)
+
+        for idx in range(len(labeled_dataset)-add_num, len(labeled_dataset)):#adapt transform to only added data
             data = labeled_dataset[idx][0]
             label = labeled_dataset.label[idx]
 
@@ -58,29 +82,29 @@ def add_data(labeled_dataset, unlabeled_dataset,  mode, add_num, chosen_dataset=
             added_label = np.append(added_label, label.numpy())
             chosen_data = torch.cat((chosen_data, data), dim=0)
             chosen_label = np.append(chosen_label, label.numpy())
-            if idx >= len(labeled_dataset)-add_num: #adapt transform to only added data
-                transform_list = augment(labeled_dataset[0][0].size(1))
-                for transform in transform_list:
 
-                    augmented = transform(data)
+            transform_list = augment(labeled_dataset[0][0].size(1))
+            for transform in transform_list:
 
-                    tr = UnNormalize((0.1307,), (0.3081,))
-                    img_chk = np.array(tr(augmented.permute(1, 2, 0)) * 255, dtype=np.uint8)
+                augmented = transform(data)
 
-                    while True:
-                        cv2.imshow('{}'.format(label), img_chk)
+                tr = UnNormalize((0.1307,), (0.3081,))
+                img_chk = np.array(tr(augmented.permute(1, 2, 0)) * 255, dtype=np.uint8)
 
-                        if cv2.waitKey(1) == ord('o'):
-                            chosen_data = torch.cat((chosen_data, augmented), dim=0)
-                            chosen_label = np.append(chosen_label, label.numpy())
-                            cv2.destroyAllWindows()
-                            break
-                        elif cv2.waitKey(1) == ord('n'):
-                            cv2.destroyAllWindows()
-                            break
+                while True:
+                    cv2.imshow('{}'.format(label), img_chk)
 
-                    added_data = torch.cat((added_data, augmented), dim=0)
-                    added_label = np.append(added_label, label.numpy())
+                    if cv2.waitKey(1) == ord('o'):
+                        chosen_data = torch.cat((chosen_data, augmented), dim=0)
+                        chosen_label = np.append(chosen_label, label.numpy())
+                        cv2.destroyAllWindows()
+                        break
+                    elif cv2.waitKey(1) == ord('n'):
+                        cv2.destroyAllWindows()
+                        break
+
+                added_data = torch.cat((added_data, augmented), dim=0)
+                added_label = np.append(added_label, label.numpy())
 
         permutes = np.random.permutation(len(unlabeled_dataset))
 
