@@ -10,21 +10,29 @@ from datetime import datetime
 from model import *
 from datasets import *
 from increment import *
+from utils import *
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 def train(labeled_dataset, val_dataset, unlabeled_dataset):
 
-    train_loader = DataLoader(labeled_dataset, batch_size=args.bs, shuffle=False)
-    val_loader = DataLoader(val_dataset, batch_size=args.bs, shuffle=False)
+    chosen_dataset = None
+    unchosen_dataset = None
 
     model = Net().to(device)
+    model_chosen = Net().to(device)
 
     criterion = nn.CrossEntropyLoss().to(device)
+    criterion_chosen = nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer_chosen = torch.optim.Adam(model_chosen.parameters(), lr=args.lr)
     now = datetime.utcnow()
-    with open('results/{}_logs_{}.csv'.format(args.mode, now), 'w') as f:
+
+    with open('results/{}_normal_logs_{}.csv'.format(now, args.mode), 'w') as f:
+        f.write('epoch, number_of_data, train_loss, train_accuracy, validation_loss, validation_accuracy\n')
+        f.close()
+    with open('results/{}_chosen_logs_{}.csv'.format(now, args.mode), 'w') as f:
         f.write('epoch, number_of_data, train_loss, train_accuracy, validation_loss, validation_accuracy\n')
         f.close()
 
@@ -35,15 +43,36 @@ def train(labeled_dataset, val_dataset, unlabeled_dataset):
         train_loss_sum = 0.0
         train_accuracy = 0
 
-        # if not e == 0:
-        #     labeled_dataset, unlabeled_dataset = add_data(labeled_dataset, unlabeled_dataset, args.mode, args.add_num)
+        if not e == 0:
+            if args.mode == 'random':
+                labeled_dataset, unlabeled_dataset = add_data(labeled_dataset, unlabeled_dataset,
+                                                              args.mode, args.add_num)
+            if args.mode == 'augment':
+                if not chosen_dataset:
+                    labeled_dataset, unlabeled_dataset, chosen_dataset = \
+                        add_data(labeled_dataset, unlabeled_dataset, args.mode, args.add_num, labeled_dataset)
+                else:
+                    labeled_dataset, unlabeled_dataset, chosen_dataset = \
+                        add_data(labeled_dataset, unlabeled_dataset, args.mode, args.add_num, chosen_dataset)
 
         train_loader = DataLoader(labeled_dataset, batch_size=args.bs, shuffle=False)
         val_loader = DataLoader(val_dataset, batch_size=args.bs, shuffle=False)
 
+        if chosen_dataset:
+            chosen_loader = DataLoader(chosen_dataset, batch_size=args.bs, shuffle=False)
+        else:
+            chosen_loader = DataLoader(labeled_dataset, batch_size=args.bs, shuffle=False)
+
         for i, (input, target) in enumerate(train_loader):
             input = input.to(device)
             target = target.to(device)
+
+            if len(input.size()) == 3:
+                input = input.unsqueeze(1)
+            elif len(input.size()) == 4:
+                pass
+            else:
+                return 'something wrong with input'
 
             y_pred = model(input)
 
@@ -65,9 +94,48 @@ def train(labeled_dataset, val_dataset, unlabeled_dataset):
         val_loss_sum, val_accuracy = validation(model, val_loader, criterion)
         print('Test >> Epoch : [{}/{}] Loss : {} Accuracy {}'.format(e, args.epoch, val_loss_sum, val_accuracy))
 
-        with open('results/{}_logs_{}.csv'.format(args.mode, now), 'a') as f:
+        with open('results/{}_normal_logs_{}.csv'.format(now, args.mode), 'a') as f:
             f.write('{},{},{},{},{},{}\n'.format(e, len(labeled_dataset), train_loss_sum, train_accuracy, val_loss_sum, val_accuracy))
             f.close()
+
+    ###########################chosen train#################################
+        if args.mode == 'augment':
+            for i, (input, target) in enumerate(chosen_loader):
+                input = input.to(device)
+                target = target.to(device)
+
+                if len(input.size()) == 3:
+                    input = input.unsqueeze(1)
+                elif len(input.size()) == 4:
+                    pass
+                else:
+                    return 'something wrong with input'
+
+                y_pred = model_chosen(input)
+
+                total += len(target)
+
+                correct += (y_pred.argmax(1) == target).sum().item()
+
+                train_loss = criterion_chosen(y_pred, target)
+                train_loss_sum += train_loss
+
+                optimizer_chosen.zero_grad()
+                train_loss.backward()
+                optimizer_chosen.step()
+
+            train_accuracy = correct/total
+            print('----------------------------------------------------')
+            print('Chosen Training >> Epoch : [{}/{}] Loss : {} Accuracy {}'.format(e, args.epoch, train_loss_sum, train_accuracy))
+
+            val_loss_sum, val_accuracy = validation(model_chosen, val_loader, criterion_chosen)
+            print('Chosen Test >> Epoch : [{}/{}] Loss : {} Accuracy {}'.format(e, args.epoch, val_loss_sum, val_accuracy))
+            print('----------------------------------------------------')
+
+            with open('results/{}_chosen_logs_{}.csv'.format(now, args.mode), 'a') as f:
+                f.write('{},{},{},{},{},{}\n'.format(e, len(chosen_dataset) if chosen_dataset else len(labeled_dataset),
+                                                     train_loss_sum, train_accuracy, val_loss_sum, val_accuracy))
+                f.close()
 
 
 def validation(model, val_loader, criterion):
@@ -101,14 +169,6 @@ def main(args):
         ])
         org_dataset = datasets.MNIST('./data', train=True, download=True)   #we will transform it when making using dataset
         val_dataset = datasets.MNIST('./data', train=False, download=True, transform=transform)
-    ##############TODO#############3
-    '''
-    dataset without transform,
-    transform in Split Dataset --> it can be easier when.... you utilize increment and augmentation for AL
-    
-    Q1. How to AL? --> do I need to add unlabeled dataset to labeled_dataset? How and When?    
-    '''
-    ###############END##############3
 
     labeled_dataset, unlabeled_dataset = init_dataset(org_dataset, args.init_num)
 
@@ -118,13 +178,13 @@ def main(args):
 if __name__ == '__main__':
 
     parser = ArgumentParser()
-    parser.add_argument('--mode', choices=['random', 'augment','choice'], default='random')
+    parser.add_argument('--mode', choices=['random', 'augment'], default='random')
     parser.add_argument('--dataset', default='mnist')
     parser.add_argument('--learning_rate', dest='lr', default=1e-4)
-    parser.add_argument('--epoch', default=50)
-    parser.add_argument('--add_num', default=100)
-    parser.add_argument('--init_num', default=100)
-    parser.add_argument('--batch_size', dest='bs', default=64)
+    parser.add_argument('--epoch', default=10)
+    parser.add_argument('--add_num', default=20)
+    parser.add_argument('--init_num', default=50)
+    parser.add_argument('--batch_size', dest='bs', default=32)
 
     args = parser.parse_args()
 
